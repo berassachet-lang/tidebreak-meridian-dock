@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TIDEBREAK — Meridian Dock | tactical FPS</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e14; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: #e8ecf1; }
+  #app { position: fixed; inset: 0; }
+  canvas.webgl { display: block; width: 100%; height: 100%; }
+  .hidden { display: none !important; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  #crosshair .ch { position: absolute; background: #e8ecf1; box-shadow: 0 0 2px #000; }
+  #crosshair .dot { width: 3px; height: 3px; left: -1.5px; top: -1.5px; border-radius: 50%; }
+  #crosshair .t { width: 2px; height: 9px; left: -1px; top: calc(-1 * var(--gap, 10px) - 9px); }
+  #crosshair .b { width: 2px; height: 9px; left: -1px; top: var(--gap, 10px); }
+  #crosshair .l { width: 9px; height: 2px; top: -1px; left: calc(-1 * var(--gap, 10px) - 9px); }
+  #crosshair .r { width: 9px; height: 2px; top: -1px; left: var(--gap, 10px); }
+  #hitmarker { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; opacity: 0; }
+  #hitmarker::before, #hitmarker::after { content: ""; position: absolute; left: 12px; top: 0; width: 2px; height: 26px; background: #ffd23e; transform: rotate(45deg); }
+  #hitmarker::after { transform: rotate(-45deg); }
+  #hitmarker.kill::before, #hitmarker.kill::after { background: #ff4d4d; }
+  #damage-vignette { position: absolute; inset: 0; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(200, 20, 20, .55) 100%); transition: opacity .12s; }
+
+  #topbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; background: rgba(8, 11, 18, .72); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 6px 16px; font-size: 15px; }
+  #topbar .team { font-weight: 700; letter-spacing: 1px; }
+  #topbar .team.us { color: #7fd4ff; }
+  #topbar .team.them { color: #ff9d6b; }
+  #timer-value { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 17px; min-width: 44px; text-align: center; }
+  #timer-value.low { color: #ff5d5d; }
+  #round-label { font-size: 12px; color: #9aa7b8; letter-spacing: 1px; }
+
+  #minimap-wrap { position: absolute; top: 10px; left: 10px; background: rgba(8, 11, 18, .72); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 6px; }
+  #minimap { display: block; width: 168px; height: 132px; }
+  #minimap-caption { font-size: 11px; color: #9aa7b8; letter-spacing: 1px; margin-top: 3px; text-align: center; }
+
+  #objective { position: absolute; top: 10px; right: 10px; text-align: right; background: rgba(8, 11, 18, .72); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 8px 12px; font-size: 13px; line-height: 1.5; max-width: 260px; }
+  #objective .obj-site { color: #ffd23e; font-weight: 700; }
+  #killfeed { margin-top: 4px; font-size: 12px; color: #c8d2de; }
+  #killfeed div { margin-top: 2px; }
+  #killfeed .kf-us { color: #7fd4ff; font-weight: 700; }
+  #killfeed .kf-them { color: #ff9d6b; font-weight: 700; }
+
+  #teams { position: absolute; left: 10px; top: 168px; font-size: 12px; line-height: 1.7; background: rgba(8, 11, 18, .6); border-radius: 6px; padding: 8px 10px; }
+  #teams .alive-us { color: #7fd4ff; }
+  #teams .alive-them { color: #ff9d6b; }
+
+  #bottom-left { position: absolute; left: 16px; bottom: 14px; }
+  #health-row { display: flex; align-items: baseline; gap: 8px; }
+  #health-num { font-size: 42px; font-weight: 800; line-height: 1; text-shadow: 0 2px 6px #000; }
+  #health-num.low { color: #ff5d5d; }
+  #health-label { font-size: 12px; color: #9aa7b8; letter-spacing: 2px; }
+  #health-bar { width: 220px; height: 8px; background: rgba(255,255,255,.14); border-radius: 4px; margin-top: 6px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #37c978, #7fd4ff); transition: width .15s; }
+  #health-fill.low { background: linear-gradient(90deg, #ff5d5d, #ff9d6b); }
+  #armor-row { font-size: 12px; color: #c8d2de; margin-top: 5px; }
+
+  #bottom-right { position: absolute; right: 16px; bottom: 14px; text-align: right; }
+  #ammo-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 6px; text-shadow: 0 2px 6px #000; }
+  #ammo-mag { font-size: 42px; font-weight: 800; line-height: 1; }
+  #ammo-reserve { font-size: 18px; color: #9aa7b8; }
+  #weapon-name { font-size: 13px; letter-spacing: 1px; color: #c8d2de; margin-top: 2px; }
+  #grenades { font-size: 13px; color: #ffd23e; margin-top: 3px; }
+  #money { font-size: 20px; font-weight: 700; color: #7be495; margin-top: 6px; text-shadow: 0 2px 6px #000; }
+
+  #banner { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); text-align: center; text-shadow: 0 2px 10px #000; }
+  #banner-title { font-size: 34px; font-weight: 800; letter-spacing: 3px; }
+  #banner-sub { font-size: 15px; color: #c8d2de; margin-top: 6px; letter-spacing: 1px; }
+  #banner.warn #banner-title { color: #ff5d5d; }
+  #banner.gold #banner-title { color: #ffd23e; }
+
+  #prompt { position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%); font-size: 15px; background: rgba(8, 11, 18, .8); border: 1px solid rgba(255,255,255,.18); padding: 8px 16px; border-radius: 6px; }
+  #prompt b { color: #ffd23e; }
+  #reload-hint { position: absolute; left: 50%; bottom: 16%; transform: translateX(-50%); font-size: 13px; color: #ffb3b3; letter-spacing: 1px; }
+
+  /* ---------- Overlays ---------- */
+  .overlay { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(10,14,22,.55) 0%, rgba(6,8,13,.88) 100%); }
+  .panel { width: min(680px, 92vw); background: rgba(10, 14, 22, .92); border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 28px 32px; }
+  .panel h1 { font-size: 34px; letter-spacing: 4px; }
+  .panel h1 .accent { color: #ff9d6b; }
+  .panel h2 { font-size: 20px; letter-spacing: 2px; margin-bottom: 10px; }
+  .panel p { font-size: 14px; line-height: 1.65; color: #c8d2de; margin-top: 8px; }
+  .panel .sub { color: #ffd23e; letter-spacing: 2px; font-size: 12px; font-weight: 700; }
+  .controls { display: grid; grid-template-columns: auto 1fr; gap: 5px 16px; font-size: 13px; margin-top: 14px; color: #c8d2de; }
+  .controls b { color: #e8ecf1; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); border-radius: 4px; padding: 1px 7px; font-size: 12px; text-align: center; }
+  .btn { pointer-events: auto; cursor: pointer; display: inline-block; margin-top: 20px; padding: 12px 30px; font-size: 16px; font-weight: 700; letter-spacing: 2px; color: #0b0e14; background: #ffd23e; border: none; border-radius: 6px; }
+  .btn:hover { background: #ffdb5e; }
+  .btn.ghost { background: transparent; color: #e8ecf1; border: 1px solid rgba(255,255,255,.35); }
+  .fine { font-size: 12px; color: #7c8898; margin-top: 16px; }
+
+  /* ---------- Buy menu ---------- */
+  #buy-menu { position: absolute; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(6, 8, 13, .55); }
+  #buy-menu .panel { width: min(760px, 94vw); }
+  #buy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .buy-item { pointer-events: auto; cursor: pointer; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; padding: 10px 12px; background: rgba(255,255,255,.04); }
+  .buy-item:hover { border-color: #ffd23e; background: rgba(255,210,62,.08); }
+  .buy-item.owned { opacity: .45; }
+  .buy-item .bi-name { font-weight: 700; font-size: 14px; }
+  .buy-item .bi-name span { color: #ffd23e; font-weight: 400; font-size: 12px; margin-left: 6px; }
+  .buy-item .bi-desc { font-size: 12px; color: #9aa7b8; margin-top: 2px; }
+  .buy-item .bi-price { font-size: 13px; color: #7be495; font-weight: 700; margin-top: 4px; }
+  #buy-footer { margin-top: 12px; font-size: 13px; color: #c8d2de; }
+  #buy-footer b { color: #7be495; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud" class="hidden">
+    <div id="damage-vignette"></div>
+    <div id="crosshair"><span class="ch dot"></span><span class="ch t"></span><span class="ch b"></span><span class="ch l"></span><span class="ch r"></span></div>
+    <div id="hitmarker"></div>
+    <div id="topbar">
+      <span class="team us">WATCH <span id="score-us">0</span></span>
+      <span id="round-label">ROUND 1</span>
+      <span id="timer-value">1:40</span>
+      <span class="team them"><span id="score-them">0</span> TIDE</span>
+    </div>
+    <div id="minimap-wrap"><canvas id="minimap" width="336" height="264"></canvas><div id="minimap-caption">MERIDIAN DOCK — MINIMAP</div></div>
+    <div id="objective"><div id="objective-text">Defend both sites.</div><div id="killfeed"></div></div>
+    <div id="teams"><div class="alive-us" id="alive-us"></div><div class="alive-them" id="alive-them"></div></div>
+    <div id="bottom-left">
+      <div id="health-row"><span id="health-num">100</span><span id="health-label">HEALTH</span></div>
+      <div id="health-bar"><div id="health-fill"></div></div>
+      <div id="armor-row">Armor <span id="armor-num">0</span> &nbsp;·&nbsp; <span id="team-role">Harbor Watch — Defender</span></div>
+    </div>
+    <div id="bottom-right">
+      <div id="ammo-row"><span id="ammo-mag">12</span><span id="ammo-reserve">/ 48</span></div>
+      <div id="weapon-name">P9 SIDEARM</div>
+      <div id="grenades"></div>
+      <div id="money">$800</div>
+    </div>
+    <div id="banner" class="hidden"><div id="banner-title"></div><div id="banner-sub"></div></div>
+    <div id="prompt" class="hidden"></div>
+    <div id="reload-hint" class="hidden">RELOADING…</div>
+  </div>
+
+  <div id="buy-menu" class="hidden">
+    <div class="panel">
+      <h2>BUY EQUIPMENT <span style="color:#7be495" id="buy-money"></span></h2>
+      <p style="margin-top:2px">Buy phase ends when the round starts. Press <b>B</b> or <b>Esc</b> to close.</p>
+      <div id="buy-grid"></div>
+      <div id="buy-footer">Keys <b>1–6</b> buy · <b>1</b> Carbine · <b>2</b> SMG · <b>3</b> Scattergun · <b>4</b> Armor · <b>5</b> Frag · <b>6</b> Smoke</div>
+    </div>
+  </div>
+
+  <div id="menu" class="overlay">
+    <div class="panel">
+      <div class="sub">A ROUND-BASED TACTICAL SHOOTER · THREE.JS</div>
+      <h1>TIDE<span class="accent">BREAK</span></h1>
+      <p><b>Meridian Dock</b> — a dusk container terminal on the harbor. You are Harbor Watch.
+      The Tidebreak crew is coming to plant a charge at Site A (Quay Gate) or Site B (Cold Store).
+      Hold the sites, or wipe their squad. Win the round, earn money, buy better guns.</p>
+      <div class="controls">
+        <b>W A S D</b><span>Move (walk slow, stop to aim true)</span>
+        <b>Mouse</b><span>Look · click to fire · hold for automatic weapons</span>
+        <b>R</b><span>Reload</span>
+        <b>Ctrl / C</b><span>Crouch (tighter spread, smaller target)</span>
+        <b>B</b><span>Buy menu (during buy phase)</span>
+        <b>1 / 2 / 3</b><span>Switch weapon · <b>4</b> frag · <b>5</b> smoke grenade</span>
+        <b>E</b><span>Hold to plant / defuse the charge</span>
+        <b>G</b><span>Throw selected grenade</span>
+      </div>
+      <button class="btn" id="play">▶ &nbsp;DEPLOY</button>
+      <p class="fine">First to 7 rounds takes the match. Headshots deal 2.5× damage. Moving and spraying
+      widens your spread — stop, crouch, tap. Bots follow lanes, hold angles, react to gunfire,
+      and plant the charge. No network, no downloads: everything runs from these files.</p>
+    </div>
+  </div>
+
+  <div id="dead" class="overlay hidden">
+    <div class="panel" style="text-align:center">
+      <h2 id="dead-title">YOU ARE DOWN</h2>
+      <p id="dead-text">Your squad is still fighting. Next round starts soon.</p>
+      <button class="btn ghost" id="spectate">SPECTATE SQUAD</button>
+    </div>
+  </div>
+
+  <div id="match-end" class="overlay hidden">
+    <div class="panel" style="text-align:center">
+      <h2 id="match-title">MATCH OVER</h2>
+      <p id="match-text"></p>
+      <button class="btn" id="again">PLAY AGAIN</button>
+    </div>
+  </div>
+</div>
+<script type="importmap">
+{ "imports": { "three": "./three.module.min.js" } }
+</script>
+<script type="module" src="./src/boot.js"></script>
+</body>
+</html>
